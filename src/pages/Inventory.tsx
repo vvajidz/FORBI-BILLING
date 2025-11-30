@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,57 +9,167 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, RefreshCw, TrendingUp, AlertTriangle, Package as PackageIcon } from "lucide-react";
+import { Search, RefreshCw, TrendingUp, AlertTriangle, Package as PackageIcon, History, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { exportToExcel } from "@/utils/excel";
 
-const inventoryItems = [
-  {
-    id: 1,
-    name: "Parle-G Biscuit",
-    sku: "8901063101012",
-    category: "Biscuit",
-    currentStock: 120,
-    minStock: 50,
-    location: "Aisle A1",
-    value: 3000,
-  },
-  {
-    id: 2,
-    name: "Dove Shampoo 200ml",
-    sku: "8901030741234",
-    category: "Personal Care",
-    currentStock: 8,
-    minStock: 20,
-    location: "Aisle B2",
-    value: 960,
-  },
-  {
-    id: 3,
-    name: "Lays Classic",
-    sku: "8901234567890",
-    category: "Snacks",
-    currentStock: 85,
-    minStock: 30,
-    location: "Aisle A2",
-    value: 1700,
-  },
-  {
-    id: 4,
-    name: "Colgate 100g",
-    sku: "8901234509876",
-    category: "Personal Care",
-    currentStock: 3,
-    minStock: 25,
-    location: "Aisle B1",
-    value: 135,
-  },
-];
+interface Product {
+  _id: string;
+  name: string;
+  barcode: string;
+  category: string;
+  stock: number;
+  minStock: number;
+  price: number;
+  location: string;
+}
 
-const totalStockValue = inventoryItems.reduce((sum, item) => sum + item.value, 0);
-const lowStockCount = inventoryItems.filter((item) => item.currentStock < item.minStock).length;
-const outOfStockCount = inventoryItems.filter((item) => item.currentStock === 0).length;
+interface StockAdjustment {
+  _id: string;
+  product: { _id: string; name: string; barcode: string };
+  type: 'add' | 'remove' | 'set';
+  quantity: number;
+  reason: string;
+  date: string;
+}
 
 export default function Inventory() {
+  const { toast } = useToast();
+  const [products, setProducts] = useState<Product[]>([]);
+  const [adjustments, setAdjustments] = useState<StockAdjustment[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Stats
+  const [totalStockValue, setTotalStockValue] = useState(0);
+  const [lowStockCount, setLowStockCount] = useState(0);
+  const [outOfStockCount, setOutOfStockCount] = useState(0);
+
+  // Adjust Stock Dialog
+  const [isAdjustDialogOpen, setIsAdjustDialogOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState("");
+  const [adjustmentType, setAdjustmentType] = useState("add");
+  const [quantity, setQuantity] = useState(0);
+  const [reason, setReason] = useState("");
+
+  useEffect(() => {
+    fetchProducts();
+    fetchAdjustments();
+  }, []);
+
+  useEffect(() => {
+    calculateStats();
+  }, [products]);
+
+  const fetchProducts = async () => {
+    try {
+      const response = await fetch("http://localhost:5000/api/products");
+      if (response.ok) {
+        const data = await response.json();
+        setProducts(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch products:", error);
+    }
+  };
+
+  const fetchAdjustments = async () => {
+    try {
+      const response = await fetch("http://localhost:5000/api/stock/adjustments");
+      if (response.ok) {
+        const data = await response.json();
+        setAdjustments(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch adjustments:", error);
+    }
+  };
+
+  const calculateStats = () => {
+    const totalValue = products.reduce((sum, item) => sum + (item.stock * item.price), 0);
+    const lowStock = products.filter((item) => item.stock > 0 && item.stock < (item.minStock || 10)).length;
+    const outOfStock = products.filter((item) => item.stock === 0).length;
+
+    setTotalStockValue(totalValue);
+    setLowStockCount(lowStock);
+    setOutOfStockCount(outOfStock);
+  };
+
+  const handleAdjustStock = async () => {
+    if (!selectedProduct || quantity <= 0 || !reason) {
+      toast({ variant: "destructive", title: "Error", description: "Please fill all fields correctly" });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch("http://localhost:5000/api/stock/adjust", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product: selectedProduct,
+          type: adjustmentType,
+          quantity,
+          reason
+        }),
+      });
+
+      if (response.ok) {
+        toast({ title: "Success", description: "Stock adjusted successfully" });
+        setIsAdjustDialogOpen(false);
+        // Reset form
+        setSelectedProduct("");
+        setQuantity(0);
+        setReason("");
+        setAdjustmentType("add");
+        // Refresh data
+        fetchProducts();
+        fetchAdjustments();
+      } else {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to adjust stock");
+      }
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredProducts = products.filter(
+    (product) =>
+      product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      product.barcode.includes(searchQuery) ||
+      product.category.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const handleExport = () => {
+    const exportData = filteredProducts.map(p => ({
+      Name: p.name,
+      Barcode: p.barcode,
+      Category: p.category,
+      Stock: p.stock,
+      MinStock: p.minStock || 10,
+      Price: p.price,
+      Value: p.stock * p.price,
+      Location: p.location || "Store",
+      Status: p.stock === 0 ? "Out of Stock" : (p.stock < (p.minStock || 10) ? "Low Stock" : "In Stock")
+    }));
+    exportToExcel(exportData, 'inventory_status');
+    toast({ title: "Success", description: "Inventory status exported successfully" });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -67,11 +178,14 @@ export default function Inventory() {
           <p className="text-muted-foreground">Monitor and manage inventory levels</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={handleExport}>
+            <Download className="mr-2 h-4 w-4" />
+            Export Inventory
+          </Button>
+          <Button variant="outline" onClick={() => setIsAdjustDialogOpen(true)}>
             <RefreshCw className="mr-2 h-4 w-4" />
             Adjust Stock
           </Button>
-          <Button variant="outline">Stock Transfer</Button>
         </div>
       </div>
 
@@ -84,7 +198,7 @@ export default function Inventory() {
             <PackageIcon className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{inventoryItems.length}</div>
+            <div className="text-2xl font-bold">{products.length}</div>
             <p className="text-xs text-muted-foreground mt-1">Active products</p>
           </CardContent>
         </Card>
@@ -129,122 +243,227 @@ export default function Inventory() {
         </Card>
       </div>
 
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex gap-4 mb-6">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Search items..." className="pl-10" />
-            </div>
-            <Select defaultValue="all">
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                <SelectItem value="biscuit">Biscuit</SelectItem>
-                <SelectItem value="personal">Personal Care</SelectItem>
-                <SelectItem value="snacks">Snacks</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select defaultValue="all">
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Stock Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Stock</SelectItem>
-                <SelectItem value="low">Low Stock</SelectItem>
-                <SelectItem value="out">Out of Stock</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+      <Tabs defaultValue="inventory" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="inventory">Current Inventory</TabsTrigger>
+          <TabsTrigger value="history">Adjustment History</TabsTrigger>
+        </TabsList>
 
-          <div className="border rounded-lg overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-muted/50">
-                <tr>
-                  <th className="text-left p-4 text-sm font-medium">Item Name</th>
-                  <th className="text-left p-4 text-sm font-medium">SKU</th>
-                  <th className="text-right p-4 text-sm font-medium">Current Stock</th>
-                  <th className="text-right p-4 text-sm font-medium">Min Stock</th>
-                  <th className="text-center p-4 text-sm font-medium">Location</th>
-                  <th className="text-right p-4 text-sm font-medium">Value</th>
-                  <th className="text-center p-4 text-sm font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {inventoryItems.map((item) => {
-                  const isLowStock = item.currentStock < item.minStock;
-                  const isOutOfStock = item.currentStock === 0;
-                  
-                  return (
-                    <tr key={item.id} className="border-t hover:bg-muted/30 transition-colors">
-                      <td className="p-4">
-                        <div className="font-medium">{item.name}</div>
-                        <div className="text-xs text-muted-foreground">{item.category}</div>
-                      </td>
-                      <td className="p-4 text-sm text-muted-foreground">
-                        {item.sku}
-                      </td>
-                      <td className="p-4 text-right">
-                        <span
-                          className={`font-bold ${
-                            isOutOfStock
-                              ? "text-destructive"
-                              : isLowStock
-                              ? "text-warning"
-                              : "text-success"
-                          }`}
-                        >
-                          {item.currentStock}
-                        </span>
-                      </td>
-                      <td className="p-4 text-right text-sm text-muted-foreground">
-                        {item.minStock}
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className="inline-flex items-center rounded-md bg-muted px-2 py-1 text-xs font-medium">
-                          {item.location}
-                        </span>
-                      </td>
-                      <td className="p-4 text-right font-medium">
-                        ₹{item.value.toLocaleString()}
-                      </td>
-                      <td className="p-4 text-center">
-                        {isOutOfStock ? (
-                          <Badge variant="destructive">Out of Stock</Badge>
-                        ) : isLowStock ? (
-                          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20">
-                            Low Stock
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="bg-success/10 text-success border-success/20">
-                            In Stock
-                          </Badge>
-                        )}
-                      </td>
+        <TabsContent value="inventory">
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex gap-4 mb-6">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search items by name, SKU or category..."
+                    className="pl-10"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="text-left p-4 text-sm font-medium">Item Name</th>
+                      <th className="text-left p-4 text-sm font-medium">SKU / Barcode</th>
+                      <th className="text-right p-4 text-sm font-medium">Current Stock</th>
+                      <th className="text-right p-4 text-sm font-medium">Min Stock</th>
+                      <th className="text-center p-4 text-sm font-medium">Location</th>
+                      <th className="text-right p-4 text-sm font-medium">Value</th>
+                      <th className="text-center p-4 text-sm font-medium">Status</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody>
+                    {filteredProducts.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                          No products found
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredProducts.map((item) => {
+                        const isLowStock = item.stock > 0 && item.stock < (item.minStock || 10);
+                        const isOutOfStock = item.stock === 0;
 
-          <div className="flex items-center justify-between mt-4">
-            <p className="text-sm text-muted-foreground">
-              Showing {inventoryItems.length} of {inventoryItems.length} items
-            </p>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" disabled>
-                Previous
-              </Button>
-              <Button variant="outline" size="sm">
-                Next
-              </Button>
+                        return (
+                          <tr key={item._id} className="border-t hover:bg-muted/30 transition-colors">
+                            <td className="p-4">
+                              <div className="font-medium">{item.name}</div>
+                              <div className="text-xs text-muted-foreground">{item.category}</div>
+                            </td>
+                            <td className="p-4 text-sm text-muted-foreground">
+                              {item.barcode}
+                            </td>
+                            <td className="p-4 text-right">
+                              <span
+                                className={`font-bold ${isOutOfStock
+                                  ? "text-destructive"
+                                  : isLowStock
+                                    ? "text-warning"
+                                    : "text-success"
+                                  }`}
+                              >
+                                {item.stock}
+                              </span>
+                            </td>
+                            <td className="p-4 text-right text-sm text-muted-foreground">
+                              {item.minStock || 10}
+                            </td>
+                            <td className="p-4 text-center">
+                              <span className="inline-flex items-center rounded-md bg-muted px-2 py-1 text-xs font-medium">
+                                {item.location || "Store"}
+                              </span>
+                            </td>
+                            <td className="p-4 text-right font-medium">
+                              ₹{(item.stock * item.price).toLocaleString()}
+                            </td>
+                            <td className="p-4 text-center">
+                              {isOutOfStock ? (
+                                <Badge variant="destructive">Out of Stock</Badge>
+                              ) : isLowStock ? (
+                                <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20">
+                                  Low Stock
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-success/10 text-success border-success/20">
+                                  In Stock
+                                </Badge>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="history">
+          <Card>
+            <CardHeader>
+              <CardTitle>Stock Adjustment History</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="text-left p-4 text-sm font-medium">Date</th>
+                      <th className="text-left p-4 text-sm font-medium">Product</th>
+                      <th className="text-center p-4 text-sm font-medium">Type</th>
+                      <th className="text-right p-4 text-sm font-medium">Quantity</th>
+                      <th className="text-left p-4 text-sm font-medium">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {adjustments.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                          No adjustments found
+                        </td>
+                      </tr>
+                    ) : (
+                      adjustments.map((adj) => (
+                        <tr key={adj._id} className="border-t hover:bg-muted/30 transition-colors">
+                          <td className="p-4 text-sm text-muted-foreground">
+                            {new Date(adj.date).toLocaleString()}
+                          </td>
+                          <td className="p-4 font-medium">
+                            {adj.product?.name || "Unknown Product"}
+                          </td>
+                          <td className="p-4 text-center">
+                            <Badge variant="outline" className={
+                              adj.type === 'add' ? "bg-success/10 text-success" :
+                                adj.type === 'remove' ? "bg-destructive/10 text-destructive" :
+                                  "bg-blue-500/10 text-blue-500"
+                            }>
+                              {adj.type.toUpperCase()}
+                            </Badge>
+                          </td>
+                          <td className="p-4 text-right font-bold">
+                            {adj.quantity}
+                          </td>
+                          <td className="p-4 text-sm text-muted-foreground">
+                            {adj.reason}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Adjust Stock Dialog */}
+      <Dialog open={isAdjustDialogOpen} onOpenChange={setIsAdjustDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Adjust Stock</DialogTitle>
+            <DialogDescription>Manually update stock levels</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Product</Label>
+              <Select value={selectedProduct} onValueChange={setSelectedProduct}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Product" />
+                </SelectTrigger>
+                <SelectContent>
+                  {products.map(p => (
+                    <SelectItem key={p._id} value={p._id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Adjustment Type</Label>
+              <Select value={adjustmentType} onValueChange={setAdjustmentType}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="add">Add Stock (+)</SelectItem>
+                  <SelectItem value="remove">Remove Stock (-)</SelectItem>
+                  <SelectItem value="set">Set Exact Stock (=)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Quantity</Label>
+              <Input
+                type="number"
+                min="1"
+                value={quantity}
+                onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Reason</Label>
+              <Input
+                placeholder="e.g., Damaged, Found, Correction"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
             </div>
           </div>
-        </CardContent>
-      </Card>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAdjustDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleAdjustStock} disabled={loading}>
+              {loading ? "Updating..." : "Update Stock"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,164 +1,223 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { 
-  FileText, 
-  ShoppingCart, 
-  Users, 
-  TrendingUp, 
-  Receipt, 
+import {
+  FileText,
+  ShoppingCart,
+  Users,
+  TrendingUp,
+  Receipt,
   BarChart3,
   Package,
   Download,
-  Printer
+  Printer,
+  Search
 } from "lucide-react";
+import { exportToExcel } from "@/utils/excel";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { DatePicker } from "@/components/ui/date-picker";
 
-const reportCategories = [
-  {
-    title: "Sales Reports",
-    icon: ShoppingCart,
-    reports: [
-      "Sales Summary",
-      "Sales by Item",
-      "Sales by Customer",
-      "Sales by Category",
-      "Daily Sales Report",
-    ],
-  },
-  {
-    title: "Purchase Reports",
-    icon: Package,
-    reports: [
-      "Purchase Summary",
-      "Purchase by Supplier",
-      "Purchase by Item",
-      "Purchase Orders",
-    ],
-  },
-  {
-    title: "Financial Reports",
-    icon: TrendingUp,
-    reports: [
-      "Profit & Loss Statement",
-      "Cash Flow Report",
-      "Balance Sheet",
-      "GST/Tax Report",
-      "Expense Report",
-    ],
-  },
-  {
-    title: "Inventory Reports",
-    icon: BarChart3,
-    reports: [
-      "Stock Valuation",
-      "Low Stock Report",
-      "Stock Movement",
-      "Inventory Aging",
-    ],
-  },
-  {
-    title: "Customer Reports",
-    icon: Users,
-    reports: [
-      "Customer List",
-      "Customer Ledger",
-      "Top Customers",
-      "Outstanding Receivables",
-    ],
-  },
-  {
-    title: "Tax Reports",
-    icon: Receipt,
-    reports: [
-      "GST Summary",
-      "GST Returns (GSTR-1)",
-      "GST Returns (GSTR-3B)",
-      "Tax Collection Report",
-    ],
-  },
+const reportTypes = [
+  { id: "sales-summary", label: "Sales Summary", category: "Sales" },
+  { id: "sales-by-item", label: "Sales by Item", category: "Sales" },
+  { id: "sales-by-customer", label: "Sales by Customer", category: "Sales" },
+  { id: "purchase-summary", label: "Purchase Summary", category: "Purchase" },
+  { id: "expense-report", label: "Expense Report", category: "Financial" },
+  { id: "stock-valuation", label: "Stock Valuation", category: "Inventory" },
 ];
 
 export default function Reports() {
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [selectedReport, setSelectedReport] = useState("sales-summary");
+  const [startDate, setStartDate] = useState<Date>(new Date());
+  const [endDate, setEndDate] = useState<Date>(new Date());
+  const [reportData, setReportData] = useState<any>(null);
+
+  const handleGenerateReport = async () => {
+    setLoading(true);
+    try {
+      const queryParams = new URLSearchParams({
+        type: selectedReport,
+        startDate: startDate.toISOString().split('T')[0],
+        endDate: endDate.toISOString().split('T')[0]
+      });
+
+      const response = await fetch(`http://localhost:5000/api/reports?${queryParams}`);
+      if (!response.ok) throw new Error("Failed to fetch report");
+
+      const data = await response.json();
+      setReportData(data);
+      toast({ title: "Report Generated", description: "Data loaded successfully" });
+    } catch (error) {
+      console.error(error);
+      toast({ variant: "destructive", title: "Error", description: "Failed to generate report" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExport = () => {
+    if (!reportData || !reportData.data) return;
+    // Filter out the id column before export
+    const exportData = reportData.data.map((row: any) => {
+      const { id, ...rest } = row;
+      return rest;
+    });
+    exportToExcel(exportData, selectedReport);
+    toast({ title: "Success", description: "Report exported successfully" });
+  };
+
+  const renderTable = () => {
+    if (!reportData || !reportData.data || reportData.data.length === 0) {
+      return <div className="text-center p-8 text-muted-foreground">No data available for this period</div>;
+    }
+
+    const allColumns = Object.keys(reportData.data[0]);
+    const columns = allColumns.filter(col => col !== 'id'); // Hide ID column
+
+    return (
+      <div className="border rounded-lg overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              {columns.map(col => (
+                <th key={col} className="p-3 text-left font-medium capitalize">
+                  {col.replace(/([A-Z])/g, ' $1').trim()}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {reportData.data.map((row: any, i: number) => (
+              <tr key={i} className="border-t hover:bg-muted/30">
+                {columns.map(col => (
+                  <td key={col} className="p-3">
+                    {typeof row[col] === 'number' && (col.toLowerCase().includes('amount') || col.toLowerCase().includes('price') || col.toLowerCase().includes('total') || col.toLowerCase().includes('revenue') || col.toLowerCase().includes('value'))
+                      ? `₹${row[col].toLocaleString()}`
+                      : (col.toLowerCase().includes('date') ? new Date(row[col]).toLocaleDateString() : row[col])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  const renderSummary = () => {
+    if (!reportData || !reportData.summary) return null;
+
+    return (
+      <div className="grid gap-4 md:grid-cols-4 mb-6">
+        {Object.entries(reportData.summary).map(([key, value]: [string, any]) => {
+          if (typeof value === 'object') return null; // Skip nested objects like byCategory
+          return (
+            <Card key={key}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground capitalize">
+                  {key.replace(/([A-Z])/g, ' $1').trim()}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {typeof value === 'number' && (key.toLowerCase().includes('total') || key.toLowerCase().includes('sales') || key.toLowerCase().includes('value'))
+                    ? `₹${value.toLocaleString()}`
+                    : value}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Reports</h1>
-          <p className="text-muted-foreground">Business analytics and detailed reports</p>
-        </div>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-2">
-        {reportCategories.map((category) => (
-          <Card key={category.title}>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <category.icon className="h-5 w-5 text-primary" />
-                {category.title}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {category.reports.map((report) => (
-                  <div
-                    key={report}
-                    className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors cursor-pointer group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm font-medium">{report}</span>
-                    </div>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button variant="ghost" size="icon" className="h-7 w-7">
-                        <Download className="h-3 w-3" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7">
-                        <Printer className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Reports</h1>
+        <p className="text-muted-foreground">Generate and view business reports</p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Generate Custom Report</CardTitle>
+          <CardTitle>Report Configuration</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Report Type</label>
+              <Select value={selectedReport} onValueChange={setSelectedReport}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {reportTypes.map(type => (
+                    <SelectItem key={type.id} value={type.id}>{type.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Start Date</label>
-              <Input type="date" />
+              <DatePicker
+                date={startDate}
+                onDateChange={(date) => date && setStartDate(date)}
+                placeholder="Select start date"
+              />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">End Date</label>
-              <Input type="date" />
+              <DatePicker
+                date={endDate}
+                onDateChange={(date) => date && setEndDate(date)}
+                placeholder="Select end date"
+              />
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Report Type</label>
-              <Input placeholder="Select report type" />
+            <div className="flex items-end">
+              <Button className="w-full" onClick={handleGenerateReport} disabled={loading}>
+                <Search className="mr-2 h-4 w-4" />
+                {loading ? "Generating..." : "Generate Report"}
+              </Button>
             </div>
-          </div>
-          <div className="flex gap-2">
-            <Button className="bg-primary">
-              <BarChart3 className="mr-2 h-4 w-4" />
-              Generate Report
-            </Button>
-            <Button variant="outline">
-              <Download className="mr-2 h-4 w-4" />
-              Export Excel
-            </Button>
-            <Button variant="outline">
-              <Download className="mr-2 h-4 w-4" />
-              Download PDF
-            </Button>
           </div>
         </CardContent>
       </Card>
+
+      {reportData && (
+        <div className="space-y-6">
+          {renderSummary()}
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Report Data</CardTitle>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={handleExport}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Export Excel
+                </Button>
+                <Button variant="outline">
+                  <Printer className="mr-2 h-4 w-4" />
+                  Print
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {renderTable()}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
