@@ -707,6 +707,7 @@ export default function Employees() {
                                             <th className="text-right p-3 font-medium">CTC</th>
                                             <th className="text-center p-3 font-medium">Grade</th>
                                             <th className="text-center p-3 font-medium">Status</th>
+                                            <th className="text-center p-3 font-medium">Salary Status</th>
                                             <th className="text-center p-3 font-medium">Actions</th>
                                         </tr>
                                     </thead>
