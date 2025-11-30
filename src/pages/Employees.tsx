@@ -439,10 +439,10 @@ export default function Employees() {
             s.employee?._id === employeeId && s.month === currentMonth
         );
 
-        if (!employeeSalary) return { status: 'Not Added', variant: 'secondary' as const };
-        if (employeeSalary.paymentStatus === 'Paid') return { status: 'Paid', variant: 'default' as const };
-        if (employeeSalary.paymentStatus === 'Processing') return { status: 'Processing', variant: 'outline' as const };
-        return { status: 'Pending', variant: 'destructive' as const };
+        if (!employeeSalary) return { status: 'Not Added', variant: 'secondary' as const, salaryId: null };
+        if (employeeSalary.paymentStatus === 'Paid') return { status: 'Paid', variant: 'default' as const, salaryId: employeeSalary._id };
+        if (employeeSalary.paymentStatus === 'Processing') return { status: 'Processing', variant: 'outline' as const, salaryId: employeeSalary._id };
+        return { status: 'Pending', variant: 'destructive' as const, salaryId: employeeSalary._id };
     };
 
     const filteredEmployees = employees.filter(emp => {
@@ -732,6 +732,26 @@ export default function Employees() {
                                                     <Badge variant={employee.status === "Active" ? "default" : "secondary"}>
                                                         {employee.status || "Active"}
                                                     </Badge>
+                                                </td>
+                                                <td className="p-3 text-center">
+                                                    {(() => {
+                                                        const { status, variant, salaryId } = getSalaryStatus(employee._id);
+                                                        return (
+                                                            <div className="flex flex-col items-center gap-1">
+                                                                <Badge variant={variant}>{status}</Badge>
+                                                                {salaryId && status !== 'Paid' && (
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        className="h-6 text-xs text-green-600 hover:text-green-700 hover:bg-green-50"
+                                                                        onClick={() => markSalaryAsPaid(salaryId)}
+                                                                    >
+                                                                        Mark Paid
+                                                                    </Button>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </td>
                                                 <td className="p-3">
                                                     <div className="flex items-center justify-center gap-1">
