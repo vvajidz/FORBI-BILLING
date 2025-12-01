@@ -99,13 +99,19 @@ export default function Reports() {
           <tbody>
             {reportData.data.map((row: any, i: number) => (
               <tr key={i} className="border-t hover:bg-muted/30">
-                {columns.map(col => (
-                  <td key={col} className="p-3">
-                    {typeof row[col] === 'number' && (col.toLowerCase().includes('amount') || col.toLowerCase().includes('price') || col.toLowerCase().includes('total') || col.toLowerCase().includes('revenue') || col.toLowerCase().includes('value'))
-                      ? `₹${row[col].toLocaleString()}`
-                      : (col.toLowerCase().includes('date') ? new Date(row[col]).toLocaleDateString() : row[col])}
-                  </td>
-                ))}
+                {columns.map(col => {
+                  const colLower = col.toLowerCase();
+                  const isCurrency = (['amount', 'price', 'revenue', 'value', 'sales', 'total'].some(s => colLower.includes(s))) && !(['item', 'items', 'qty', 'quantity', 'count'].some(ex => colLower.includes(ex)));
+                  const isDate = colLower.includes('date');
+                  const val = row[col];
+                  return (
+                    <td key={col} className="p-3">
+                      {typeof val === 'number' && isCurrency
+                        ? `₹${val.toLocaleString()}`
+                        : (isDate ? new Date(val).toLocaleDateString() : val)}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
@@ -130,9 +136,11 @@ export default function Reports() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {typeof value === 'number' && (key.toLowerCase().includes('total') || key.toLowerCase().includes('sales') || key.toLowerCase().includes('value'))
-                    ? `₹${value.toLocaleString()}`
-                    : value}
+                  {(() => {
+                    const keyLower = key.toLowerCase();
+                    const isCurrency = (['amount', 'price', 'revenue', 'value', 'sales', 'total'].some(s => keyLower.includes(s))) && !(['item', 'items', 'qty', 'quantity', 'count'].some(ex => keyLower.includes(ex)));
+                    return (typeof value === 'number' && isCurrency) ? `₹${value.toLocaleString()}` : value;
+                  })()}
                 </div>
               </CardContent>
             </Card>
