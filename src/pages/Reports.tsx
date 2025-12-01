@@ -214,7 +214,7 @@ export default function Reports() {
                   <Download className="mr-2 h-4 w-4" />
                   Export Excel
                 </Button>
-                <Button variant="outline">
+                <Button variant="outline" onClick={() => window.print()}>
                   <Printer className="mr-2 h-4 w-4" />
                   Print
                 </Button>
